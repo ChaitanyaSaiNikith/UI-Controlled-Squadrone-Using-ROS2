@@ -1,0 +1,883 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Squadron Control</title>
+<script src="https://cdn.jsdelivr.net/npm/roslib@1/build/roslib.min.js"></script>
+<style>
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+  :root {
+    --bg:        #0d1117;
+    --bg2:       #161b22;
+    --bg3:       #21262d;
+    --border:    #30363d;
+    --text:      #c9d1d9;
+    --text-dim:  #8b949e;
+    --blue:      #58a6ff;
+    --green:     #3fb950;
+    --amber:     #d29922;
+    --red:       #f85149;
+    --purple:    #bc8cff;
+  }
+
+  html, body { height: 100%; overflow: hidden; background: var(--bg); color: var(--text); font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', monospace; font-size: 13px; }
+
+  /* ── Topbar ── */
+  #topbar {
+    height: 44px; background: var(--bg2); border-bottom: 1px solid var(--border);
+    display: flex; align-items: center; padding: 0 16px; gap: 12px; flex-shrink: 0;
+  }
+  #topbar .title { font-size: 15px; font-weight: 700; color: var(--blue); letter-spacing: 1.5px; }
+  #topbar .badge { background: var(--bg3); border: 1px solid var(--border); border-radius: 12px; padding: 2px 10px; font-size: 11px; color: var(--text-dim); }
+  #topbar .spacer { flex: 1; }
+  #conn-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--red); transition: background .3s; }
+  #conn-dot.connected { background: var(--green); }
+  #conn-url { color: var(--text-dim); font-size: 11px; font-family: monospace; }
+
+  /* ── Main layout ── */
+  #main { display: flex; height: calc(100vh - 44px); overflow: hidden; }
+
+  /* ── Panels ── */
+  .panel { background: var(--bg2); border-right: 1px solid var(--border); overflow-y: auto; flex-shrink: 0; }
+  #left-panel  { width: 186px; display: flex; flex-direction: column; gap: 0; }
+  #right-panel { width: 200px; border-right: none; border-left: 1px solid var(--border); display: flex; flex-direction: column; gap: 0; }
+
+  .section { border-bottom: 1px solid var(--border); padding: 10px; }
+  .section-title { font-size: 10px; font-weight: 600; letter-spacing: 1px; color: var(--text-dim); text-transform: uppercase; margin-bottom: 8px; }
+
+  /* ── Arm / Disarm ── */
+  .cmd-btns { display: flex; flex-direction: column; gap: 6px; }
+  .btn { width: 100%; padding: 8px 0; border: none; border-radius: 6px; font-size: 13px; font-weight: 700; cursor: pointer; letter-spacing: .5px; transition: filter .15s, transform .08s; }
+  .btn:active { transform: scale(.97); }
+  .btn-arm      { background: var(--green);  color: #0d1117; }
+  .btn-disarm   { background: var(--red);    color: #fff; }
+  .btn-takeoff  { background: var(--blue);   color: #0d1117; }
+  .btn-land     { background: var(--amber);  color: #0d1117; }
+  .btn-arm:hover     { filter: brightness(1.15); }
+  .btn-disarm:hover  { filter: brightness(1.15); }
+  .btn-takeoff:hover { filter: brightness(1.15); }
+  .btn-land:hover    { filter: brightness(1.15); }
+
+  /* ── Formation grid ── */
+  .formation-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; }
+  .btn-form { padding: 7px 0; border: 1px solid var(--border); border-radius: 6px; background: var(--bg3); color: var(--text); font-size: 12px; cursor: pointer; transition: background .15s, border-color .15s; }
+  .btn-form:hover { background: var(--bg); }
+  .btn-form.active { background: #1f3a5f; border-color: var(--blue); color: var(--blue); font-weight: 700; }
+
+  /* ── Status cards ── */
+  .status-cards { display: flex; flex-direction: column; gap: 5px; }
+  .status-card { background: var(--bg3); border-radius: 5px; padding: 6px 8px; display: flex; justify-content: space-between; align-items: center; }
+  .status-card .label { color: var(--text-dim); font-size: 11px; }
+  .status-card .value { font-size: 12px; font-weight: 600; }
+  .val-green  { color: var(--green); }
+  .val-amber  { color: var(--amber); }
+  .val-red    { color: var(--red); }
+  .val-blue   { color: var(--blue); }
+  .val-dim    { color: var(--text-dim); }
+
+  /* ── Event log ── */
+  #event-log-section { flex: 1; display: flex; flex-direction: column; min-height: 0; }
+  #event-log { flex: 1; overflow-y: auto; font-family: monospace; font-size: 10px; color: var(--text-dim); line-height: 1.6; padding: 6px 8px; background: var(--bg); }
+  #event-log .ev-time { color: var(--text-dim); }
+  #event-log .ev-arm     { color: var(--green); }
+  #event-log .ev-disarm  { color: var(--red); }
+  #event-log .ev-form    { color: var(--blue); }
+  #event-log .ev-conn    { color: var(--amber); }
+  #event-log .ev-takeoff { color: var(--blue); }
+  #event-log .ev-land    { color: var(--amber); }
+
+  /* ── Center column ── */
+  #center { flex: 1; display: flex; flex-direction: column; min-width: 0; }
+
+  /* ── Map ── */
+  #map-wrap { flex: 1; position: relative; overflow: hidden; background: #0a1628; }
+  #map-canvas { display: block; width: 100%; height: 100%; }
+
+  /* ── Joystick bar ── */
+  #joy-bar {
+    height: 118px; background: var(--bg2); border-top: 1px solid var(--border);
+    display: flex; align-items: center; gap: 12px; padding: 0 16px; flex-shrink: 0;
+  }
+  .joy-wrap { display: flex; flex-direction: column; align-items: center; gap: 4px; }
+  .joy-label { font-size: 10px; color: var(--text-dim); letter-spacing: .5px; }
+  canvas.joy-canvas { cursor: crosshair; border-radius: 50%; background: var(--bg3); border: 1px solid var(--border); }
+
+  .joy-controls { display: flex; flex-direction: column; justify-content: center; gap: 8px; }
+  .vel-chips { display: grid; grid-template-columns: 1fr 1fr; gap: 4px; }
+  .vel-chip { background: var(--bg3); border-radius: 4px; padding: 3px 7px; font-size: 11px; font-family: monospace; min-width: 72px; }
+  .vel-chip .chip-label { color: var(--text-dim); font-size: 10px; }
+  .vel-chip .chip-val   { color: var(--blue); }
+
+  .slider-row { display: flex; align-items: center; gap: 8px; font-size: 11px; color: var(--text-dim); }
+  .slider-row input[type=range] { accent-color: var(--blue); width: 100px; }
+  .slider-row .sv { color: var(--text); font-weight: 600; min-width: 30px; }
+
+  /* ── Right panel ── */
+  .telem-table { width: 100%; border-collapse: collapse; font-size: 11px; }
+  .telem-table th { color: var(--text-dim); font-weight: 600; text-align: left; padding: 3px 4px; border-bottom: 1px solid var(--border); }
+  .telem-table td { padding: 4px 4px; font-family: monospace; }
+  .telem-table tr:hover td { background: var(--bg3); }
+
+  .err-bar { height: 6px; border-radius: 3px; margin-top: 2px; min-width: 4px; transition: width .3s; }
+  .err-row { margin-bottom: 7px; }
+  .err-label { display: flex; justify-content: space-between; font-size: 11px; margin-bottom: 2px; }
+
+  .gain-row { display: flex; justify-content: space-between; align-items: center; font-size: 11px; }
+  .gain-val { font-family: monospace; color: var(--blue); }
+</style>
+</head>
+<body>
+
+<!-- ── Topbar ── -->
+<div id="topbar">
+  <span class="title">SQUADRON CONTROL</span>
+  <span class="badge" id="badge-drones">SITL · ? DRONES</span>
+  <span class="spacer"></span>
+  <div id="conn-dot"></div>
+  <span id="conn-url">ws://localhost:9090</span>
+</div>
+
+<!-- ── Main ── -->
+<div id="main">
+
+  <!-- Left panel -->
+  <div id="left-panel" class="panel">
+
+    <div class="section">
+      <div class="section-title">Command</div>
+      <div class="cmd-btns">
+        <button class="btn btn-arm"     id="btn-arm">▲ ARM</button>
+        <button class="btn btn-disarm"  id="btn-disarm">▼ DISARM</button>
+        <button class="btn btn-takeoff" id="btn-takeoff">⬆ TAKEOFF</button>
+        <button class="btn btn-land"    id="btn-land">⬇ LAND ALL</button>
+      </div>
+    </div>
+
+    <div class="section">
+      <div class="section-title">Formation</div>
+      <div class="formation-grid">
+        <button class="btn-form active" data-form="V">V</button>
+        <button class="btn-form"        data-form="line">Line</button>
+        <button class="btn-form"        data-form="diamond">◇</button>
+        <button class="btn-form"        data-form="square">□</button>
+        <button class="btn-form"        data-form="circle">⬤</button>
+      </div>
+    </div>
+
+    <div class="section">
+      <div class="section-title">System Status</div>
+      <div class="status-cards" id="status-cards">
+        <div class="status-card"><span class="label">Leader</span><span class="value val-dim" id="s-leader-arm">DISARMED</span></div>
+        <!-- follower cards injected dynamically -->
+        <div class="status-card"><span class="label">Formation</span><span class="value val-blue" id="s-form">V</span></div>
+        <div class="status-card"><span class="label">Leader Alt</span><span class="value val-blue" id="s-alt">0.0 m</span></div>
+        <div class="status-card"><span class="label">Max Err</span><span class="value val-dim" id="s-maxerr">—</span></div>
+      </div>
+    </div>
+
+    <div class="section" id="event-log-section" style="flex:1;min-height:80px;">
+      <div class="section-title">Event Log</div>
+      <div id="event-log"></div>
+    </div>
+
+  </div><!-- /left -->
+
+  <!-- Center -->
+  <div id="center">
+    <div id="map-wrap">
+      <canvas id="map-canvas"></canvas>
+    </div>
+
+    <!-- Joystick bar -->
+    <div id="joy-bar">
+      <div class="joy-wrap">
+        <span class="joy-label">LEFT · YAW / THROTTLE</span>
+        <canvas class="joy-canvas" id="joy-left"  width="80" height="80"></canvas>
+      </div>
+      <div class="joy-wrap">
+        <span class="joy-label">RIGHT · STRAFE / FWD</span>
+        <canvas class="joy-canvas" id="joy-right" width="80" height="80"></canvas>
+      </div>
+
+      <div class="joy-controls">
+        <div class="vel-chips">
+          <div class="vel-chip"><div class="chip-label">vx (N)</div><div class="chip-val" id="cv-vx">0.00</div></div>
+          <div class="vel-chip"><div class="chip-label">vy (E)</div><div class="chip-val" id="cv-vy">0.00</div></div>
+          <div class="vel-chip"><div class="chip-label">vz (D)</div><div class="chip-val" id="cv-vz">0.00</div></div>
+          <div class="vel-chip"><div class="chip-label">yaw</div><div class="chip-val"  id="cv-yr">0.00</div></div>
+        </div>
+        <div class="slider-row">
+          <span>Speed</span>
+          <input type="range" id="sl-speed" min="0.5" max="5" step="0.5" value="2">
+          <span class="sv" id="sv-speed">2.0 m/s</span>
+        </div>
+        <div class="slider-row">
+          <span>Rate</span>
+          <input type="range" id="sl-rate"  min="5"   max="50" step="5"  value="20">
+          <span class="sv" id="sv-rate">20 Hz</span>
+        </div>
+      </div>
+    </div><!-- /joy-bar -->
+
+  </div><!-- /center -->
+
+  <!-- Right panel -->
+  <div id="right-panel" class="panel">
+
+    <div class="section">
+      <div class="section-title">Position Telemetry</div>
+      <table class="telem-table">
+        <thead><tr><th>Drone</th><th>N</th><th>E</th><th>Alt</th></tr></thead>
+        <tbody id="telem-body">
+          <tr><td>Leader</td><td id="t-l-n">—</td><td id="t-l-e">—</td><td id="t-l-a">—</td></tr>
+          <!-- follower rows injected dynamically -->
+        </tbody>
+      </table>
+    </div>
+
+    <div class="section">
+      <div class="section-title">Formation Error</div>
+      <div id="err-section">
+        <!-- error bars injected dynamically -->
+      </div>
+    </div>
+
+    <div class="section">
+      <div class="section-title">PD Gains (read-only)</div>
+      <div class="gain-row"><span>Kp</span><span class="gain-val">1.0</span></div>
+      <div style="height:6px"></div>
+      <div class="gain-row"><span>Kd</span><span class="gain-val">0.3</span></div>
+    </div>
+
+  </div><!-- /right -->
+
+</div><!-- /main -->
+
+<script>
+'use strict';
+
+// ── State ─────────────────────────────────────────────────────────────────────
+const state = {
+  connected: false,
+  formation: 'V',
+  leaderArmed: false,
+  numFollowers: 0,
+  drones: {
+    leader: { n: null, e: null, d: null },
+  },
+  targets: {},
+  vel: { vx: 0, vy: 0, vz: 0, yr: 0 },
+  maxSpeed: 2.0,
+  publishHz: 20,
+};
+
+// ── Event log ─────────────────────────────────────────────────────────────────
+const logEl = document.getElementById('event-log');
+function logEvent(msg, cls = '') {
+  const now = new Date();
+  const ts = now.toTimeString().slice(0,8);
+  const line = document.createElement('div');
+  line.innerHTML = `<span class="ev-time">[${ts}]</span> <span class="${cls}">${msg}</span>`;
+  logEl.appendChild(line);
+  if (logEl.children.length > 120) logEl.removeChild(logEl.firstChild);
+  logEl.scrollTop = logEl.scrollHeight;
+}
+
+// ── ROS connection ────────────────────────────────────────────────────────────
+let ros = null;
+let publishers = {};
+let reconnectTimer = null;
+
+function connect() {
+  if (ros) { try { ros.close(); } catch(e){} }
+  ros = new ROSLIB.Ros({ url: 'ws://localhost:9090' });
+
+  ros.on('connection', () => {
+    state.connected = true;
+    document.getElementById('conn-dot').classList.add('connected');
+    logEvent('Connected to rosbridge', 'ev-conn');
+    setupPublishers();
+    setupSubscribers();
+    // Set up default 2-follower UI immediately so map works before /num_followers arrives
+    if (state.numFollowers === 0) setupDroneUI(2);
+    if (reconnectTimer) { clearInterval(reconnectTimer); reconnectTimer = null; }
+  });
+
+  ros.on('error', () => {
+    state.connected = false;
+    document.getElementById('conn-dot').classList.remove('connected');
+  });
+
+  ros.on('close', () => {
+    state.connected = false;
+    document.getElementById('conn-dot').classList.remove('connected');
+    logEvent('Disconnected — retrying in 3s', 'ev-conn');
+    if (!reconnectTimer) reconnectTimer = setInterval(connect, 3000);
+  });
+}
+
+function setupPublishers() {
+  publishers.arm = new ROSLIB.Topic({
+    ros, name: '/arm_message',
+    messageType: 'std_msgs/Bool',
+  });
+  publishers.vel = new ROSLIB.Topic({
+    ros, name: '/offboard_velocity_cmd',
+    messageType: 'geometry_msgs/Twist',
+  });
+  publishers.form = new ROSLIB.Topic({
+    ros, name: '/formation_type',
+    messageType: 'std_msgs/String',
+  });
+  publishers.takeoff = new ROSLIB.Topic({
+    ros, name: '/cmd_takeoff',
+    messageType: 'std_msgs/Bool',
+  });
+  publishers.land = new ROSLIB.Topic({
+    ros, name: '/cmd_land',
+    messageType: 'std_msgs/Bool',
+  });
+}
+
+function setupSubscribers() {
+  // Leader state
+  new ROSLIB.Topic({ ros, name: '/leader_state', messageType: 'geometry_msgs/PoseStamped' })
+    .subscribe(msg => {
+      const p = msg.pose.position;
+      state.drones.leader = { n: p.x, e: p.y, d: p.z };
+    });
+
+  // Leader armed state
+  new ROSLIB.Topic({ ros, name: '/fmu/out/vehicle_status_v2',
+    messageType: 'px4_msgs/msg/VehicleStatus' })
+    .subscribe(msg => {
+      const armed = msg.arming_state === 2;
+      if (armed !== state.leaderArmed) {
+        logEvent(armed ? 'Leader ARMED' : 'Leader DISARMED', armed ? 'ev-arm' : 'ev-disarm');
+      }
+      state.leaderArmed = armed;
+    });
+
+  // num_followers — TRANSIENT_LOCAL so we get it even if we connect late
+  new ROSLIB.Topic({ ros, name: '/num_followers', messageType: 'std_msgs/Int32' })
+    .subscribe(msg => {
+      if (msg.data !== state.numFollowers) {
+        state.numFollowers = msg.data;
+        setupDroneUI(msg.data);
+      }
+    });
+}
+
+// Palette for up to 8 followers
+const FOLLOWER_PALETTE = ['#3fb950','#d29922','#bc8cff','#f85149','#58a6ff','#39d353','#ff7b72','#79c0ff'];
+
+// Track active follower topic subscriptions keyed by drone name
+let _followerSubs = {};
+
+function setupDroneUI(n) {
+  // Update badge
+  document.getElementById('badge-drones').textContent = `SITL · ${n + 1} DRONES`;
+
+  // Add missing drone entries — preserve existing position data
+  for (let i = 1; i <= n; i++) {
+    const key = `drone${i}`;
+    if (!state.drones[key])  state.drones[key]  = { n: null, e: null, d: null };
+    if (!state.targets[key]) state.targets[key] = { n: null, e: null, d: null };
+  }
+  // Remove entries for drones beyond current count
+  for (const key of Object.keys(state.drones)) {
+    if (key === 'leader') continue;
+    const id = parseInt(key.replace('drone', ''), 10);
+    if (id > n) { delete state.drones[key]; delete state.targets[key]; }
+  }
+
+  // Inject status cards (before Formation card)
+  const statusCards = document.getElementById('status-cards');
+  // Remove old follower cards
+  statusCards.querySelectorAll('.follower-card').forEach(el => el.remove());
+  const formCard = statusCards.querySelector('#s-form').parentElement;
+  for (let i = 1; i <= n; i++) {
+    const key = `drone${i}`;
+    state.drones[key]  = { n: null, e: null, d: null };
+    state.targets[key] = { n: null, e: null, d: null };
+    const card = document.createElement('div');
+    card.className = 'status-card follower-card';
+    card.innerHTML = `<span class="label">Drone ${i}</span><span class="value val-dim" id="s-d${i}">—</span>`;
+    statusCards.insertBefore(card, formCard);
+  }
+
+  // Inject telemetry rows
+  const tbody = document.getElementById('telem-body');
+  tbody.querySelectorAll('.follower-row').forEach(el => el.remove());
+  for (let i = 1; i <= n; i++) {
+    const tr = document.createElement('tr');
+    tr.className = 'follower-row';
+    tr.innerHTML = `<td>Drone${i}</td><td id="t-${i}-n">—</td><td id="t-${i}-e">—</td><td id="t-${i}-a">—</td>`;
+    tbody.appendChild(tr);
+  }
+
+  // Inject formation error bars
+  const errSec = document.getElementById('err-section');
+  errSec.innerHTML = '';
+  for (let i = 1; i <= n; i++) {
+    const div = document.createElement('div');
+    div.className = 'err-row';
+    div.id = `err-drone${i}`;
+    div.innerHTML = `
+      <div class="err-label"><span>Drone ${i}</span><span id="err-${i}-val" style="color:var(--text-dim)">—</span></div>
+      <div class="err-bar" id="err-${i}-bar" style="background:var(--text-dim);width:0%"></div>`;
+    errSec.appendChild(div);
+  }
+
+  // Unsubscribe topics for drones beyond current count
+  for (const key of Object.keys(_followerSubs)) {
+    const id = parseInt(key.replace('drone', ''), 10);
+    if (id > n) {
+      try { _followerSubs[key].pos.unsubscribe(); } catch(e){}
+      try { _followerSubs[key].tgt.unsubscribe(); } catch(e){}
+      delete _followerSubs[key];
+    }
+  }
+
+  // Subscribe only to new drone topics not already subscribed
+  for (let i = 1; i <= n; i++) {
+    const key = `drone${i}`;
+    if (_followerSubs[key]) continue;  // already subscribed
+
+    const posTopic = new ROSLIB.Topic({ ros, name: `/${key}/fmu/out/vehicle_local_position_v1`,
+      messageType: 'px4_msgs/msg/VehicleLocalPosition' });
+    posTopic.subscribe(msg => { state.drones[key] = { n: msg.x, e: msg.y, d: msg.z }; });
+
+    const tgtTopic = new ROSLIB.Topic({ ros, name: `/${key}/target_position`,
+      messageType: 'geometry_msgs/PoseStamped' });
+    tgtTopic.subscribe(msg => {
+      const p = msg.pose.position;
+      state.targets[key] = { n: p.x, e: p.y, d: p.z };
+    });
+
+    _followerSubs[key] = { pos: posTopic, tgt: tgtTopic };
+  }
+
+  logEvent(`Tracking ${n + 1} drones`, 'ev-conn');
+}
+
+// ── Arm / Disarm ──────────────────────────────────────────────────────────────
+document.getElementById('btn-arm').addEventListener('click', () => {
+  if (!state.connected) return;
+  publishers.arm.publish(new ROSLIB.Message({ data: true }));
+  logEvent('ARM command sent', 'ev-arm');
+});
+document.getElementById('btn-disarm').addEventListener('click', () => {
+  if (!state.connected) return;
+  publishers.arm.publish(new ROSLIB.Message({ data: false }));
+  logEvent('DISARM command sent', 'ev-disarm');
+});
+document.getElementById('btn-takeoff').addEventListener('click', () => {
+  if (!state.connected) return;
+  publishers.takeoff.publish(new ROSLIB.Message({ data: true }));
+  logEvent('TAKEOFF — climbing to 5 m', 'ev-takeoff');
+});
+document.getElementById('btn-land').addEventListener('click', () => {
+  if (!state.connected) return;
+  publishers.land.publish(new ROSLIB.Message({ data: true }));
+  logEvent('LAND ALL — all drones landing', 'ev-land');
+});
+
+// ── Formation buttons ─────────────────────────────────────────────────────────
+document.querySelectorAll('.btn-form').forEach(btn => {
+  btn.addEventListener('click', () => {
+    const f = btn.dataset.form;
+    if (!state.connected) return;
+    publishers.form.publish(new ROSLIB.Message({ data: f }));
+    state.formation = f;
+    document.querySelectorAll('.btn-form').forEach(b => b.classList.remove('active'));
+    btn.classList.add('active');
+    document.getElementById('s-form').textContent = f;
+    logEvent(`Formation → ${f}`, 'ev-form');
+  });
+});
+
+// ── Sliders ───────────────────────────────────────────────────────────────────
+document.getElementById('sl-speed').addEventListener('input', function() {
+  state.maxSpeed = parseFloat(this.value);
+  document.getElementById('sv-speed').textContent = state.maxSpeed.toFixed(1) + ' m/s';
+});
+document.getElementById('sl-rate').addEventListener('input', function() {
+  state.publishHz = parseInt(this.value);
+  document.getElementById('sv-rate').textContent = state.publishHz + ' Hz';
+  resetPublishTimer();
+});
+
+// ── Velocity publishing ───────────────────────────────────────────────────────
+let publishTimer = null;
+function resetPublishTimer() {
+  if (publishTimer) clearInterval(publishTimer);
+  publishTimer = setInterval(publishVelocity, 1000 / state.publishHz);
+}
+function publishVelocity() {
+  if (!state.connected || !publishers.vel) return;
+  publishers.vel.publish(new ROSLIB.Message({
+    linear:  { x: state.vel.vx, y: state.vel.vy, z: state.vel.vz },
+    angular: { x: 0, y: 0, z: state.vel.yr },
+  }));
+}
+resetPublishTimer();
+
+// ── Virtual Joysticks ─────────────────────────────────────────────────────────
+function makeJoystick(canvasId, onUpdate) {
+  const canvas = document.getElementById(canvasId);
+  const ctx = canvas.getContext('2d');
+  const R = canvas.width / 2;
+  const KNOB_R = 14;
+  let active = false;
+  let kx = 0, ky = 0; // normalised -1..1
+
+  function draw() {
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
+    // Base circle
+    ctx.beginPath();
+    ctx.arc(R, R, R - 2, 0, Math.PI * 2);
+    ctx.strokeStyle = '#30363d';
+    ctx.lineWidth = 1.5;
+    ctx.stroke();
+    // Cross-hairs
+    ctx.strokeStyle = '#30363d';
+    ctx.lineWidth = 1;
+    ctx.beginPath(); ctx.moveTo(R, 4); ctx.lineTo(R, canvas.height - 4); ctx.stroke();
+    ctx.beginPath(); ctx.moveTo(4, R); ctx.lineTo(canvas.width - 4, R); ctx.stroke();
+    // Knob
+    const px = R + kx * (R - KNOB_R - 2);
+    const py = R + ky * (R - KNOB_R - 2);
+    const grad = ctx.createRadialGradient(px, py, 1, px, py, KNOB_R);
+    grad.addColorStop(0, '#79c0ff');
+    grad.addColorStop(1, '#1f6feb');
+    ctx.beginPath();
+    ctx.arc(px, py, KNOB_R, 0, Math.PI * 2);
+    ctx.fillStyle = grad;
+    ctx.fill();
+  }
+
+  function getXY(e) {
+    const rect = canvas.getBoundingClientRect();
+    const cx = (e.touches ? e.touches[0].clientX : e.clientX) - rect.left;
+    const cy = (e.touches ? e.touches[0].clientY : e.clientY) - rect.top;
+    return [(cx - R) / (R - KNOB_R - 2), (cy - R) / (R - KNOB_R - 2)];
+  }
+
+  function clamp1(v) { return Math.max(-1, Math.min(1, v)); }
+
+  function onMove(e) {
+    if (!active) return;
+    e.preventDefault();
+    const [nx, ny] = getXY(e);
+    kx = clamp1(nx); ky = clamp1(ny);
+    // Circular clamp
+    const mag = Math.sqrt(kx*kx + ky*ky);
+    if (mag > 1) { kx /= mag; ky /= mag; }
+    onUpdate(kx, ky);
+    draw();
+  }
+
+  function onStart(e) { active = true; onMove(e); }
+  function onEnd() {
+    active = false; kx = 0; ky = 0;
+    onUpdate(0, 0);
+    draw();
+  }
+
+  canvas.addEventListener('mousedown',  onStart);
+  canvas.addEventListener('mousemove',  onMove);
+  canvas.addEventListener('mouseup',    onEnd);
+  canvas.addEventListener('mouseleave', onEnd);
+  canvas.addEventListener('touchstart', onStart, { passive: false });
+  canvas.addEventListener('touchmove',  onMove,  { passive: false });
+  canvas.addEventListener('touchend',   onEnd);
+
+  draw();
+}
+
+// Left: X=yaw, Y=throttle (up=climb=negative NED z)
+makeJoystick('joy-left', (x, y) => {
+  state.vel.yr  =  x * 1.0;          // yaw rate rad/s
+  state.vel.vz  =  y * state.maxSpeed; // up stick (neg y) → negative NED z (climb)
+  updateVelChips();
+});
+
+// Right: X=strafe (NED y), Y=fwd/back (NED x, inverted)
+makeJoystick('joy-right', (x, y) => {
+  state.vel.vy  =  x * state.maxSpeed; // strafe east
+  state.vel.vx  = -y * state.maxSpeed; // fwd stick (neg y) → positive NED x
+  updateVelChips();
+});
+
+function updateVelChips() {
+  document.getElementById('cv-vx').textContent = state.vel.vx.toFixed(2);
+  document.getElementById('cv-vy').textContent = state.vel.vy.toFixed(2);
+  document.getElementById('cv-vz').textContent = state.vel.vz.toFixed(2);
+  document.getElementById('cv-yr').textContent = state.vel.yr.toFixed(2);
+}
+
+// ── Map canvas ────────────────────────────────────────────────────────────────
+const mapCanvas = document.getElementById('map-canvas');
+const mapCtx    = mapCanvas.getContext('2d');
+
+function droneColor(key) {
+  if (key === 'leader') return '#58a6ff';
+  const i = parseInt(key.replace('drone', ''), 10) - 1;
+  return FOLLOWER_PALETTE[i % FOLLOWER_PALETTE.length];
+}
+
+function resizeMap() {
+  const wrap = document.getElementById('map-wrap');
+  mapCanvas.width  = wrap.clientWidth;
+  mapCanvas.height = wrap.clientHeight;
+}
+
+function drawMap() {
+  const W = mapCanvas.width, H = mapCanvas.height;
+  const ctx = mapCtx;
+
+  ctx.clearRect(0, 0, W, H);
+  ctx.fillStyle = '#0a1628';
+  ctx.fillRect(0, 0, W, H);
+
+  // Collect known positions (NED: x=North, y=East)
+  const pts = [];
+  for (const [key, d] of Object.entries(state.drones)) {
+    if (d.n !== null) pts.push({ key, n: d.n, e: d.e, d: d.d });
+  }
+
+  // Auto-zoom
+  let minN = -10, maxN = 10, minE = -10, maxE = 10;
+  if (pts.length > 0) {
+    minN = Math.min(...pts.map(p => p.n)) - 8;
+    maxN = Math.max(...pts.map(p => p.n)) + 8;
+    minE = Math.min(...pts.map(p => p.e)) - 8;
+    maxE = Math.max(...pts.map(p => p.e)) + 8;
+    // Keep square aspect
+    const rangeN = maxN - minN, rangeE = maxE - minE;
+    const maxRange = Math.max(rangeN, rangeE);
+    const midN = (minN + maxN) / 2, midE = (minE + maxE) / 2;
+    minN = midN - maxRange/2; maxN = midN + maxRange/2;
+    minE = midE - maxRange/2; maxE = midE + maxRange/2;
+  }
+
+  const pad = 40;
+  const scaleN = (H - pad*2) / (maxN - minN);
+  const scaleE = (W - pad*2) / (maxE - minE);
+  const scale  = Math.min(scaleN, scaleE);
+
+  // World-to-canvas: NED x=North→up, y=East→right
+  function toCanvas(n, e) {
+    const cx = pad + (e - minE) * scale;
+    const cy = H - pad - (n - minN) * scale;
+    return [cx, cy];
+  }
+
+  // Grid
+  const gridStep = pickGridStep(maxN - minN);
+  ctx.strokeStyle = '#1a2d4a';
+  ctx.lineWidth = 1;
+  const gn0 = Math.ceil(minN / gridStep) * gridStep;
+  for (let gn = gn0; gn <= maxN; gn += gridStep) {
+    const [x0, y0] = toCanvas(gn, minE);
+    const [x1, y1] = toCanvas(gn, maxE);
+    ctx.beginPath(); ctx.moveTo(x0, y0); ctx.lineTo(x1, y1); ctx.stroke();
+    ctx.fillStyle = '#2d4a6a'; ctx.font = '9px monospace';
+    ctx.fillText(gn.toFixed(0)+'m', x0 + 2, y0 - 2);
+  }
+  const ge0 = Math.ceil(minE / gridStep) * gridStep;
+  for (let ge = ge0; ge <= maxE; ge += gridStep) {
+    const [x0, y0] = toCanvas(minN, ge);
+    const [x1, y1] = toCanvas(maxN, ge);
+    ctx.beginPath(); ctx.moveTo(x0, y0); ctx.lineTo(x1, y1); ctx.stroke();
+    ctx.fillStyle = '#2d4a6a'; ctx.font = '9px monospace';
+    ctx.fillText(ge.toFixed(0), x0 + 2, y0 + 9);
+  }
+
+  // Dashed lines leader → followers
+  const ldr = state.drones.leader;
+  if (ldr.n !== null) {
+    const [lx, ly] = toCanvas(ldr.n, ldr.e);
+    for (const key of Object.keys(state.drones)) {
+      if (key === 'leader') continue;
+      const d = state.drones[key];
+      if (d.n === null) continue;
+      const [dx, dy] = toCanvas(d.n, d.e);
+      ctx.beginPath();
+      ctx.setLineDash([5, 4]);
+      ctx.strokeStyle = droneColor(key) + '60';
+      ctx.lineWidth = 1;
+      ctx.moveTo(lx, ly); ctx.lineTo(dx, dy);
+      ctx.stroke();
+      ctx.setLineDash([]);
+    }
+  }
+
+  // Drones
+  for (const { key, n, e, d: depth } of pts) {
+    const [cx, cy] = toCanvas(n, e);
+    const color = droneColor(key);
+    const alt = depth !== null ? -depth : 0; // convert NED z→altitude (positive up)
+
+    // Altitude ring (faint, radius proportional to altitude)
+    if (alt > 0.3) {
+      const ringR = Math.min(alt * 2.5, 40);
+      ctx.beginPath();
+      ctx.arc(cx, cy, ringR, 0, Math.PI*2);
+      ctx.strokeStyle = color + '25';
+      ctx.lineWidth = 1;
+      ctx.stroke();
+    }
+
+    // Dot
+    ctx.beginPath();
+    ctx.arc(cx, cy, 7, 0, Math.PI*2);
+    ctx.fillStyle = color;
+    ctx.fill();
+    ctx.strokeStyle = '#0a1628';
+    ctx.lineWidth = 1.5;
+    ctx.stroke();
+
+    // Label
+    ctx.fillStyle = color;
+    ctx.font = 'bold 10px monospace';
+    ctx.fillText(key, cx + 10, cy - 4);
+    ctx.fillStyle = '#8b949e';
+    ctx.font = '9px monospace';
+    ctx.fillText(`(${n.toFixed(1)}, ${e.toFixed(1)})`, cx + 10, cy + 8);
+  }
+
+  // Compass — top-right
+  drawCompass(ctx, W - 36, 36, 20);
+
+  // Legend — bottom-left
+  drawLegend(ctx, pad, H - pad + 10);
+}
+
+function drawCompass(ctx, cx, cy, r) {
+  ctx.strokeStyle = '#30363d';
+  ctx.lineWidth = 1;
+  ctx.beginPath(); ctx.arc(cx, cy, r, 0, Math.PI*2); ctx.stroke();
+  // N arrow
+  ctx.fillStyle = '#58a6ff';
+  ctx.font = 'bold 11px sans-serif';
+  ctx.textAlign = 'center';
+  ctx.fillText('N', cx, cy - r + 10);
+  ctx.beginPath();
+  ctx.moveTo(cx, cy - r + 14);
+  ctx.lineTo(cx - 4, cy + 2);
+  ctx.lineTo(cx + 4, cy + 2);
+  ctx.closePath();
+  ctx.fillStyle = '#58a6ff';
+  ctx.fill();
+  // E label
+  ctx.fillStyle = '#8b949e';
+  ctx.font = '10px sans-serif';
+  ctx.fillText('E', cx + r - 6, cy + 4);
+  ctx.textAlign = 'left';
+}
+
+function drawLegend(ctx, x, y) {
+  const items = Object.keys(state.drones).map(key => ({
+    label: key === 'leader' ? 'Leader' : `Drone ${key.replace('drone','')}`,
+    color: droneColor(key),
+  }));
+  items.forEach((item, i) => {
+    ctx.beginPath();
+    ctx.arc(x + 6, y + i*16, 5, 0, Math.PI*2);
+    ctx.fillStyle = item.color;
+    ctx.fill();
+    ctx.fillStyle = '#8b949e';
+    ctx.font = '10px monospace';
+    ctx.fillText(item.label, x + 15, y + i*16 + 4);
+  });
+}
+
+function pickGridStep(range) {
+  if (range < 15)  return 2;
+  if (range < 40)  return 5;
+  if (range < 100) return 10;
+  return 20;
+}
+
+// ── UI update loop ────────────────────────────────────────────────────────────
+function updateUI() {
+  const ldr = state.drones.leader;
+
+  // Leader status
+  document.getElementById('s-leader-arm').textContent = state.leaderArmed ? 'ARMED' : 'DISARMED';
+  document.getElementById('s-leader-arm').className = 'value ' + (state.leaderArmed ? 'val-green' : 'val-dim');
+  document.getElementById('s-alt').textContent = ldr.d !== null ? (-ldr.d).toFixed(1) + ' m' : '—';
+
+  // Telemetry — leader row
+  const fmt = v => v !== null ? v.toFixed(2) : '—';
+  const ln = document.getElementById('t-l-n'); if (ln) ln.textContent = fmt(ldr.n);
+  const le = document.getElementById('t-l-e'); if (le) le.textContent = fmt(ldr.e);
+  const la = document.getElementById('t-l-a'); if (la) la.textContent = ldr.d !== null ? (-ldr.d).toFixed(2) : '—';
+
+  // Follower status cards, telemetry rows, error bars
+  let maxErr = null;
+  for (let i = 1; i <= state.numFollowers; i++) {
+    const key = `drone${i}`;
+    const d  = state.drones[key]  || { n: null, e: null, d: null };
+    const tg = state.targets[key] || { n: null, e: null, d: null };
+
+    // Status card
+    const sc = document.getElementById(`s-d${i}`);
+    if (sc) {
+      sc.textContent = d.n !== null ? `N:${d.n.toFixed(1)}` : '—';
+      sc.className = 'value ' + (d.n !== null ? 'val-green' : 'val-dim');
+    }
+
+    // Telemetry row
+    const tn = document.getElementById(`t-${i}-n`); if (tn) tn.textContent = fmt(d.n);
+    const te = document.getElementById(`t-${i}-e`); if (te) te.textContent = fmt(d.e);
+    const ta = document.getElementById(`t-${i}-a`); if (ta) ta.textContent = d.d !== null ? (-d.d).toFixed(2) : '—';
+
+    // Error bar
+    const barEl = document.getElementById(`err-${i}-bar`);
+    const valEl = document.getElementById(`err-${i}-val`);
+    if (barEl && valEl) {
+      if (d.n === null || tg.n === null) {
+        valEl.textContent = '—'; valEl.style.color = 'var(--text-dim)';
+        barEl.style.width = '0%'; barEl.style.background = 'var(--text-dim)';
+      } else {
+        const err = Math.sqrt((d.n-tg.n)**2 + (d.e-tg.e)**2 + (d.d-tg.d)**2);
+        if (maxErr === null || err > maxErr) maxErr = err;
+        valEl.textContent = err.toFixed(2) + ' m';
+        const barW = Math.min(err / 6 * 100, 100).toFixed(1) + '%';
+        let col = 'var(--green)';
+        if (err > 1.5) col = 'var(--red)';
+        else if (err > 0.5) col = 'var(--amber)';
+        valEl.style.color = col;
+        barEl.style.background = col;
+        barEl.style.width = barW;
+      }
+    }
+  }
+
+  const maxErrEl = document.getElementById('s-maxerr');
+  if (maxErr !== null) {
+    maxErrEl.textContent = maxErr.toFixed(2) + ' m';
+    maxErrEl.className = 'value ' + (maxErr > 1.5 ? 'val-red' : maxErr > 0.5 ? 'val-amber' : 'val-green');
+  } else {
+    maxErrEl.textContent = '—';
+    maxErrEl.className = 'value val-dim';
+  }
+
+  drawMap();
+  requestAnimationFrame(updateUI);
+}
+
+// ── Init ──────────────────────────────────────────────────────────────────────
+window.addEventListener('resize', resizeMap);
+resizeMap();
+connect();
+requestAnimationFrame(updateUI);
+logEvent('Dashboard loaded', 'ev-conn');
+</script>
+</body>
+</html>

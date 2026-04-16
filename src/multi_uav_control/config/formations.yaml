@@ -1,0 +1,45 @@
+# formations.yaml
+# Formation offset definitions for the multi-UAV squadron.
+# All offsets are in the NED frame (North-East-Down), relative to the leader (drone0).
+# Units: metres.  Positive X = North, Positive Y = East, Positive Z = Down.
+# Followers are indexed 1–4 in order.
+
+formations:
+  V:
+    description: "V-shape — followers spread behind and to the sides"
+    offsets:
+      - [  -2.0, -2.0,  0.0 ]   # drone1: back-left
+      - [  -2.0,  2.0,  0.0 ]   # drone2: back-right
+      - [  -4.0, -4.0,  0.0 ]   # drone3: further back-left
+      - [  -4.0,  4.0,  0.0 ]   # drone4: further back-right
+
+  line:
+    description: "Column — single file directly behind the leader"
+    offsets:
+      - [  -5.0,  0.0,  0.0 ]   # drone1: 5m behind
+      - [ -10.0,  0.0,  0.0 ]   # drone2: 10m behind
+      - [ -15.0,  0.0,  0.0 ]   # drone3: 15m behind
+      - [ -20.0,  0.0,  0.0 ]   # drone4: 20m behind
+
+  diamond:
+    description: "Wing — followers flank the leader left and right"
+    offsets:
+      - [   0.0, -5.0,  0.0 ]   # drone1: left flank
+      - [   0.0,  5.0,  0.0 ]   # drone2: right flank
+      - [  -5.0, -5.0,  0.0 ]   # drone3: back-left
+      - [  -5.0,  5.0,  0.0 ]   # drone4: back-right
+
+  square:
+    description: "Echelon — wide trailing V, followers well spread behind"
+    offsets:
+      - [  -5.0, -5.0,  0.0 ]   # drone1: back-left
+      - [  -5.0,  5.0,  0.0 ]   # drone2: back-right
+      - [ -10.0, -5.0,  0.0 ]   # drone3: further back-left
+      - [ -10.0,  5.0,  0.0 ]   # drone4: further back-right
+
+# Controller parameters (used by follower_controller nodes)
+controller:
+  kp: 0.5          # proportional gain
+  kd: 0.1          # derivative gain
+  max_vel: 3.0     # velocity saturation (m/s)
+  catchup_scale: 1.2  # speed multiplier when follower is far from target
