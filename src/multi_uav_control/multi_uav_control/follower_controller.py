@@ -3,6 +3,7 @@
 follower_controller.py — Velocity PD controller for one follower drone.
 
 One instance per follower, parameterised by drone_id (1–N).
+number of followers = 4
 
 Control law (NED frame):
   velocity_cmd = Kp * (target - current_pos) - Kd * current_velocity
@@ -15,6 +16,7 @@ Warmup sequence:
   1. Send 50 zero-velocity setpoints at 50 Hz (velocity=True heartbeat).
   2. Request offboard mode.
   3. Auto-arm once leader arms, has target, and has position.
+
 """
 
 import math
