@@ -1,8 +1,0 @@
-build/
-install/
-log/
-.claude/
-scripts/CLAUDE.md
-__pycache__/
-*.pyc
-*.egg-info/
