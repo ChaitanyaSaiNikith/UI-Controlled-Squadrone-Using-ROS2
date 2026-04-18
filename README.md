@@ -2,7 +2,6 @@
 
 A browser-based hierarchical control system for multi-UAV squadrons simulated in Gazebo. A human operator pilots a **leader drone** via a virtual joystick in the web UI, and up to N **follower drones** autonomously maintain configurable formations with real-time collision avoidance.
 
-<!-- 📸 SUGGESTED IMAGE: Full system screenshot — Gazebo window + Web UI side by side showing drones in V formation -->
 ![System Overview](docs/images/system_overview.png)
 
 ---
@@ -19,16 +18,41 @@ A browser-based hierarchical control system for multi-UAV squadrons simulated in
 
 ---
 
-## Demo
+## Web UI
 
-<!-- 📸 SUGGESTED IMAGE: GIF or screenshot of drones flying in V formation in Gazebo -->
-![V Formation](docs/images/v_formation.png)
-
-<!-- 📸 SUGGESTED IMAGE: GIF or screenshot of formation transition (e.g. V → Circle) showing drones navigating around each other -->
-![Formation Transition](docs/images/formation_transition.png)
-
-<!-- 📸 SUGGESTED IMAGE: Screenshot of the Web UI showing the virtual joystick, formation buttons, and live 2D map -->
 ![Web UI](docs/images/web_ui.png)
+
+The browser interface provides:
+- **Left joystick** — throttle (up/down) and yaw (rotate)
+- **Right joystick** — forward/back and strafe
+- **ARM / DISARM / TAKEOFF / LAND ALL** buttons
+- **Formation selector** — switch between V, Line, ◇, □, ⬤ mid-flight
+- **Live 2D map** — real-time world-frame positions of all drones
+- **Position telemetry panel** — N, E, Alt for every drone
+- **Formation error bars** — per-drone distance from target
+- **Event log** — timestamped command and status history
+
+---
+
+## Formations
+
+![Formation Grid](docs/images/formation_grid.png)
+
+| Formation | Description |
+|---|---|
+| **V** | Classic V-shape trailing behind leader |
+| **Line** | Single file behind leader |
+| **Diamond** | Diamond pattern around leader |
+| **Square** | Square grid behind leader |
+| **Circle** | Ring of drones orbiting behind leader (dynamic, radius 7 m) |
+
+All formations are defined in the **leader body frame** and automatically rotate with leader yaw.
+
+### Formation Transitions
+
+Drones switch formations without colliding thanks to **Artificial Potential Field (APF)** collision avoidance.
+
+![Formation Transition](docs/images/formation_transition.png)
 
 ---
 
@@ -57,7 +81,9 @@ A browser-based hierarchical control system for multi-UAV squadrons simulated in
 └─────────────────────────────────────────────────────────┘
 ```
 
-<!-- 📸 SUGGESTED IMAGE: ROS 2 node graph (run `ros2 run rqt_graph rqt_graph` and screenshot) showing topics connecting all nodes -->
+### ROS 2 Node Graph
+
+![RQT Graph](docs/images/rqt_graph.png)
 
 ### ROS 2 Nodes
 
@@ -81,31 +107,21 @@ A browser-based hierarchical control system for multi-UAV squadrons simulated in
 
 ---
 
-## Formations
-
-<!-- 📸 SUGGESTED IMAGE: 2x3 grid showing all 5 formations on the 2D map (V, Line, Diamond, Square, Circle) — can be screenshots from the web UI -->
-
-| Formation | Description |
-|---|---|
-| **V** | Classic V-shape trailing behind leader |
-| **Line** | Single file behind leader |
-| **Diamond** | Diamond pattern around leader |
-| **Square** | Square grid behind leader |
-| **Circle** | Ring of drones orbiting behind leader (dynamic, radius 7 m) |
-
-All formations are defined in the **leader body frame** and automatically rotate with leader yaw.
-
----
-
 ## Collision Avoidance
 
 During formation transitions, drones use **Artificial Potential Field (APF)** repulsion to avoid collisions:
 
 1. `formation_manager` broadcasts world-frame positions of all drones on `/fleet_world_positions`
 2. Each follower computes a repulsion velocity from drones within `D_SAFE = 6.0 m`
-3. **Proximity speed cap**: `max_speed = 4.0 × (distance / D_SAFE)` — drones slow down as they approach each other, allowing repulsion to overpower the formation attraction
+3. **Proximity speed cap**: `max_speed = 4.0 × (distance / D_SAFE)` — drones slow down as they approach each other, allowing repulsion to overpower the formation attraction force
 
-<!-- 📸 SUGGESTED IMAGE: Side-by-side Gazebo screenshot of a formation transition showing drones navigating safely around each other -->
+### Collision Avoidance Constants (`follower_controller.py`)
+
+| Constant | Value | Description |
+|---|---|---|
+| `D_SAFE` | `6.0 m` | Safety radius — repulsion activates inside this distance |
+| `K_REP` | `8.0` | Repulsion gain strength |
+| `D_MIN` | `0.3 m` | Minimum distance clamp (prevents singularity) |
 
 ---
 
@@ -134,7 +150,6 @@ cd ~/squadron_ros2_ws
 
 ### 2. Copy the correct px4_msgs
 ```bash
-# Assumes you have PX4-Autopilot and a ros2 workspace with the pinned px4_msgs
 cp -r ~/px4_ros2_ws/src/px4_msgs ~/squadron_ros2_ws/src/px4_msgs
 ```
 
@@ -177,10 +192,8 @@ cd ~/squadron_ros2_ws/web && python3 web_server.py
 
 Navigate to **[http://localhost:8080/web_ui.html](http://localhost:8080/web_ui.html)**
 
-<!-- 📸 SUGGESTED IMAGE: Screenshot of web UI at startup showing green connection dot and all drone indicators -->
-
 **Operating sequence:**
-1. Wait for the green connection dot in the top bar
+1. Wait for the green connection dot in the top-right bar
 2. Press **TAKEOFF** — leader climbs to 5 m, followers auto-arm and join formation
 3. Use the **right joystick** to fly the leader (forward/strafe)
 4. Use the **left joystick** for throttle and yaw
@@ -202,20 +215,13 @@ Navigate to **[http://localhost:8080/web_ui.html](http://localhost:8080/web_ui.h
 | `NUM_FOLLOWERS` | `2` | Number of follower drones |
 | `SPAWN_NORTH_M` | `3.0` | Gazebo spawn spacing between drones (metres) |
 
-Collision avoidance constants in [follower_controller.py](src/multi_uav_control/multi_uav_control/follower_controller.py):
-
-| Constant | Default | Description |
-|---|---|---|
-| `D_SAFE` | `6.0 m` | Safety radius — repulsion activates inside this distance |
-| `K_REP` | `8.0` | Repulsion gain strength |
-| `D_MIN` | `0.3 m` | Minimum distance clamp (prevents singularity) |
-
 ---
 
 ## Project Structure
 
 ```
 squadron_ros2_ws/
+├── docs/images/                 # README screenshots
 ├── web/
 │   ├── web_ui.html              # Browser control interface
 │   └── web_server.py            # Local HTTP server (port 8080)
@@ -239,31 +245,13 @@ squadron_ros2_ws/
 
 ---
 
-## How It Works
-
-### Leader-Follower Control
-
-The leader drone is controlled directly via web UI velocity commands. Formation manager reads the leader's world-NED position and yaw at 20 Hz, rotates the formation offsets (defined in leader body frame) into world NED, subtracts each follower's spawn offset to convert into the follower's local NED frame, then publishes individual targets.
-
-Each follower runs a **velocity PD controller**:
-```
-v_cmd = Kp × (target − position) − Kd × current_velocity
-```
-with `Kp = 0.5`, `Kd = 0.3`, `max_horizontal = 4 m/s`.
-
-### Multi-Instance NED Frames
-
-Each PX4 SITL instance has its NED origin at its Gazebo spawn point. Follower `i` spawns at `y = i × 3 m` (Gazebo Y = NED North), so its local NED x is offset from world NED by `3 × i` metres. Formation manager handles this conversion automatically.
-
----
-
 ## Troubleshooting
 
 | Problem | Fix |
 |---|---|
 | Web UI shows "unable to connect" | Wait 2s — it auto-retries. Ensure rosbridge is running (Terminal 2) |
 | Followers don't arm | Ensure leader is armed first and above 3 m altitude |
-| Drones scatter on formation change | Check `D_SAFE` and `K_REP` in `follower_controller.py` |
+| Drones collide on formation change | Check `D_SAFE` and `K_REP` in `follower_controller.py` |
 | `RTPS_READER_HISTORY payload size` errors | Wrong `px4_msgs` version — pin to commit `51e6678` |
 | 2D map positions look wrong | Ensure `SPAWN_NORTH_M` matches the value used in `launch_multi_sitl.sh` |
 
