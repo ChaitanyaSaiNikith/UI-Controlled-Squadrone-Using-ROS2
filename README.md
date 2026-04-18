@@ -2,6 +2,8 @@
 
 A browser-based hierarchical control system for multi-UAV squadrons simulated in Gazebo. A human operator pilots a **leader drone** via a virtual joystick in the web UI, and up to N **follower drones** autonomously maintain configurable formations with real-time collision avoidance.
 
+![System Overview](docs/images/system_overview.png)
+
 ---
 
 ## Features
@@ -18,6 +20,8 @@ A browser-based hierarchical control system for multi-UAV squadrons simulated in
 
 ## Web UI
 
+![Web UI](docs/images/web_ui.png)
+
 The browser interface provides:
 - **Left joystick** — throttle (up/down) and yaw (rotate)
 - **Right joystick** — forward/back and strafe
@@ -32,6 +36,8 @@ The browser interface provides:
 
 ## Formations
 
+![Formation Grid](docs/images/formation_grid.png)
+
 | Formation | Description |
 |---|---|
 | **V** | Classic V-shape trailing behind leader |
@@ -45,6 +51,8 @@ All formations are defined in the **leader body frame** and automatically rotate
 ### Formation Transitions
 
 Drones switch formations without colliding thanks to **Artificial Potential Field (APF)** collision avoidance.
+
+![Formation Transition](docs/images/formation_transition.png)
 
 ---
 
@@ -72,6 +80,10 @@ Drones switch formations without colliding thanks to **Artificial Potential Fiel
 │   Leader (instance 0) + N Followers (instances 1..N)     │
 └─────────────────────────────────────────────────────────┘
 ```
+
+### ROS 2 Node Graph
+
+![RQT Graph](docs/images/rqt_graph.png)
 
 ### ROS 2 Nodes
 
@@ -209,6 +221,7 @@ Navigate to **[http://localhost:8080/web_ui.html](http://localhost:8080/web_ui.h
 
 ```
 squadron_ros2_ws/
+├── docs/images/                 # README screenshots
 ├── web/
 │   ├── web_ui.html              # Browser control interface
 │   └── web_server.py            # Local HTTP server (port 8080)
