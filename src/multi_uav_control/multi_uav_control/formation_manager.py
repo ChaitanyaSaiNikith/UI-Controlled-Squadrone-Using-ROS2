@@ -25,7 +25,7 @@ from rclpy.qos import (
 )
 
 from geometry_msgs.msg import PoseStamped
-from std_msgs.msg import String, Int32
+from std_msgs.msg import String, Int32, Float32MultiArray
 from px4_msgs.msg import VehicleLocalPosition, VehicleAttitude
 
 # Formation offsets in leader BODY frame (metres).
@@ -101,6 +101,16 @@ class FormationManager(Node):
             self._target_pubs[drone_id] = self.create_publisher(
                 PoseStamped, f'/drone{drone_id}/target_position', 10)
 
+        # ── fleet position broadcast ─────────────────────────────────────────
+        self._follower_world_pos: dict[int, tuple[float, float, float]] = {}
+        for drone_id in range(1, self._num_followers + 1):
+            self.create_subscription(
+                VehicleLocalPosition,
+                f'/drone{drone_id}/fmu/out/vehicle_local_position_v1',
+                lambda msg, did=drone_id: self._follower_pos_cb(msg, did),
+                qos)
+        self._fleet_pub = self.create_publisher(Float32MultiArray, '/fleet_world_positions', 10)
+
         self.create_timer(1.0 / 20.0, self._loop)
         self.get_logger().info(
             f'FormationManager started — formation={self._formation} '
@@ -132,6 +142,28 @@ class FormationManager(Node):
         else:
             self.get_logger().warn(
                 f"Unknown formation '{name}'. Valid: {list(FORMATIONS.keys())}")
+
+    def _follower_pos_cb(self, msg: VehicleLocalPosition, drone_id: int) -> None:
+        """Cache follower position converted to world NED frame."""
+        self._follower_world_pos[drone_id] = (
+            msg.x + self._spawn_north_m * drone_id,
+            msg.y,
+            msg.z,
+        )
+
+    def _publish_fleet_positions(self) -> None:
+        """Broadcast all drone world-NED positions. Index 0=leader, 1..N=followers."""
+        if self._leader_pos is None:
+            return
+        if len(self._follower_world_pos) < self._num_followers:
+            return  # wait until every follower has reported at least once
+        lx, ly, lz = self._leader_pos
+        data: list[float] = [lx, ly, lz]
+        for did in range(1, self._num_followers + 1):
+            data.extend(self._follower_world_pos[did])
+        msg = Float32MultiArray()
+        msg.data = data
+        self._fleet_pub.publish(msg)
 
     # ── helpers ─────────────────────────────────────────────────────────────
 
@@ -195,6 +227,7 @@ class FormationManager(Node):
                 rot_x = ox * cy - oy * sy
                 rot_y = ox * sy + oy * cy
                 self._publish_target(drone_id, now, lx + rot_x, ly + rot_y, lz)
+            self._publish_fleet_positions()
             return
 
         offsets = FORMATIONS[self._formation]
@@ -206,6 +239,8 @@ class FormationManager(Node):
                                  lx + rot_x,
                                  ly + rot_y,
                                  lz + oz)
+
+        self._publish_fleet_positions()
 
 
 def main(args=None):

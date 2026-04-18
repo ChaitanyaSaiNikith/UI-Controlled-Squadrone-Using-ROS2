@@ -16,6 +16,10 @@ class Handler(http.server.SimpleHTTPRequestHandler):
     def __init__(self, *args, **kwargs):
         super().__init__(*args, directory=DIR, **kwargs)
 
+    def end_headers(self):
+        self.send_header('Cache-Control', 'no-store, no-cache, must-revalidate')
+        super().end_headers()
+
     def log_message(self, fmt, *args):  # quieter logging
         print(f"[web] {self.address_string()} {fmt % args}")
 

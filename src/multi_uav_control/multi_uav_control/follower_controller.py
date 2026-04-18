@@ -20,6 +20,7 @@ Warmup sequence:
 import math
 
 import rclpy
+from std_msgs.msg import Float32MultiArray
 from rclpy.node import Node
 from rclpy.qos import (
     QoSProfile, QoSReliabilityPolicy, QoSDurabilityPolicy, QoSHistoryPolicy,
@@ -32,6 +33,9 @@ from px4_msgs.msg import (
 )
 
 WARMUP_COUNT = 50
+D_SAFE  = 6.0   # metres — repulsion + speed-cap activates within this radius
+K_REP   = 8.0   # repulsion gain
+D_MIN   = 0.3   # clamp to avoid singularity at zero distance
 
 
 def _px4_qos(depth: int = 5) -> QoSProfile:
@@ -57,11 +61,14 @@ class FollowerController(Node):
         self.declare_parameter('max_vel_h', 4.0)
         self.declare_parameter('max_vel_v', 2.0)
 
-        self._id  = self.get_parameter('drone_id').value
-        self._kp  = self.get_parameter('kp').value
-        self._kd  = self.get_parameter('kd').value
-        self._mvh = self.get_parameter('max_vel_h').value
-        self._mvv = self.get_parameter('max_vel_v').value
+        self.declare_parameter('spawn_north_m', 3.0)
+
+        self._id     = self.get_parameter('drone_id').value
+        self._kp     = self.get_parameter('kp').value
+        self._kd     = self.get_parameter('kd').value
+        self._mvh    = self.get_parameter('max_vel_h').value
+        self._mvv    = self.get_parameter('max_vel_v').value
+        self._spawn_m = self.get_parameter('spawn_north_m').value
 
         ns = f'drone{self._id}'
         self._sysid = self._id + 1
@@ -95,6 +102,8 @@ class FollowerController(Node):
         self.create_subscription(
             VehicleLocalPosition,
             '/fmu/out/vehicle_local_position_v1', self._leader_pos_cb, qos)
+        self.create_subscription(
+            Float32MultiArray, '/fleet_world_positions', self._fleet_cb, 10)
 
         # ── state ────────────────────────────────────────────────────────────
         self._target : tuple[float, float, float] | None = None
@@ -106,6 +115,7 @@ class FollowerController(Node):
         self._landing            = False
         self._warmup_count       = 0
         self._offboard_engaged   = False
+        self._fleet_positions: list[float] = []
 
         self.create_timer(1.0 / 50.0, self._loop)
         self.get_logger().info(
@@ -137,6 +147,9 @@ class FollowerController(Node):
         if was_armed and not self._leader_armed and self._armed:
             self.get_logger().info(f'drone{self._id}: leader disarmed — landing')
             self._landing = True
+
+    def _fleet_cb(self, msg: Float32MultiArray) -> None:
+        self._fleet_positions = list(msg.data)
 
     # ── main loop ────────────────────────────────────────────────────────────
 
@@ -181,9 +194,70 @@ class FollowerController(Node):
             self._send_velocity(0.0, 0.0, 0.0)
             return
 
-        # Phase 5 — PD control toward formation target
+        # Phase 5 — PD control + APF collision avoidance
         vx, vy, vz = self._pd_control()
+        rx, ry, rz, min_dist = self._apf_repulsion()
+        vx += rx
+        vy += ry
+        vz += rz
+        # Cap speed based on proximity: full speed at D_SAFE, zero at contact.
+        # This ensures repulsion can always overpower PD attraction when close.
+        if min_dist < D_SAFE:
+            speed_factor = max(min_dist / D_SAFE, 0.05)
+            eff_mvh = self._mvh * speed_factor
+            eff_mvv = self._mvv * speed_factor
+        else:
+            eff_mvh = self._mvh
+            eff_mvv = self._mvv
+        # Re-saturate with proximity-adjusted limits
+        h = math.sqrt(vx**2 + vy**2)
+        if h > eff_mvh:
+            scale = eff_mvh / h
+            vx *= scale
+            vy *= scale
+        vz = _clamp(vz, eff_mvv)
         self._send_velocity(vx, vy, vz)
+
+    # ── APF repulsion ────────────────────────────────────────────────────────
+
+    def _apf_repulsion(self) -> tuple[float, float, float, float]:
+        """
+        Artificial potential field repulsion from nearby drones.
+        World-NED repulsion == local-NED repulsion (frames differ by translation only).
+        Fleet array layout: [ldr_x,ldr_y,ldr_z, f1_x,f1_y,f1_z, ...]
+        Self index = self._id (leader=0, follower i=i).
+        Returns (vrx, vry, vrz, min_dist) — min_dist used for velocity capping.
+        """
+        if self._pos is None or len(self._fleet_positions) < 3:
+            return (0.0, 0.0, 0.0, float('inf'))
+
+        px, py, pz = self._pos
+        my_wx = px + self._spawn_m * self._id
+        my_wy = py
+        my_wz = pz
+
+        vrx = vry = vrz = 0.0
+        min_dist = float('inf')
+        n = len(self._fleet_positions) // 3
+        for j in range(n):
+            if j == self._id:
+                continue  # skip self
+            b = j * 3
+            dx = my_wx - self._fleet_positions[b]
+            dy = my_wy - self._fleet_positions[b + 1]
+            dz = my_wz - self._fleet_positions[b + 2]
+            d = math.sqrt(dx*dx + dy*dy + dz*dz)
+            if d < min_dist:
+                min_dist = d
+            if d >= D_SAFE:
+                continue
+            d_eff = max(d, D_MIN)
+            mag = K_REP * (1.0/d_eff - 1.0/D_SAFE) / (d_eff * d_eff)
+            vrx += mag * dx / d_eff
+            vry += mag * dy / d_eff
+            vrz += mag * dz / d_eff
+
+        return (vrx, vry, vrz, min_dist)
 
     # ── PD controller ────────────────────────────────────────────────────────
 

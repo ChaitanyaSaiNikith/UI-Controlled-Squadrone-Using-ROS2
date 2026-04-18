@@ -67,7 +67,7 @@ def generate_launch_description():
             executable='follower_controller',
             name=f'follower_controller_drone{i}',
             output='screen',
-            parameters=[{'drone_id': i}],
+            parameters=[{'drone_id': i, 'spawn_north_m': SPAWN_NORTH_M}],
         )
         for i in range(1, NUM_FOLLOWERS + 1)
     ]

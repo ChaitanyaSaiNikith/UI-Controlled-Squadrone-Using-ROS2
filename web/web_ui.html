@@ -288,33 +288,48 @@ function logEvent(msg, cls = '') {
 // ── ROS connection ────────────────────────────────────────────────────────────
 let ros = null;
 let publishers = {};
-let reconnectTimer = null;
+let _retryPending = false;
+
+function scheduleRetry() {
+  if (_retryPending) return;
+  _retryPending = true;
+  setTimeout(() => { _retryPending = false; connect(); }, 2000);
+}
 
 function connect() {
-  if (ros) { try { ros.close(); } catch(e){} }
-  ros = new ROSLIB.Ros({ url: 'ws://localhost:9090' });
+  // Detach old ros object without triggering our handlers
+  if (ros) {
+    const old = ros;
+    ros = null;
+    try { old.close(); } catch(e){}
+  }
 
-  ros.on('connection', () => {
+  const r = new ROSLIB.Ros({ url: 'ws://localhost:9090' });
+  ros = r;
+
+  r.on('connection', () => {
+    if (ros !== r) return;   // stale attempt
     state.connected = true;
     document.getElementById('conn-dot').classList.add('connected');
     logEvent('Connected to rosbridge', 'ev-conn');
+    _followerSubs = {};
     setupPublishers();
     setupSubscribers();
-    // Set up default 2-follower UI immediately so map works before /num_followers arrives
     if (state.numFollowers === 0) setupDroneUI(2);
-    if (reconnectTimer) { clearInterval(reconnectTimer); reconnectTimer = null; }
   });
 
-  ros.on('error', () => {
+  r.on('error', () => {
+    if (ros !== r) return;   // stale attempt
     state.connected = false;
     document.getElementById('conn-dot').classList.remove('connected');
   });
 
-  ros.on('close', () => {
+  r.on('close', () => {
+    if (ros !== r) return;   // stale attempt
     state.connected = false;
     document.getElementById('conn-dot').classList.remove('connected');
-    logEvent('Disconnected — retrying in 3s', 'ev-conn');
-    if (!reconnectTimer) reconnectTimer = setInterval(connect, 3000);
+    logEvent('Disconnected — retrying in 2s…', 'ev-conn');
+    scheduleRetry();
   });
 }
 
@@ -448,7 +463,7 @@ function setupDroneUI(n) {
 
     const posTopic = new ROSLIB.Topic({ ros, name: `/${key}/fmu/out/vehicle_local_position_v1`,
       messageType: 'px4_msgs/msg/VehicleLocalPosition' });
-    posTopic.subscribe(msg => { state.drones[key] = { n: msg.x, e: msg.y, d: msg.z }; });
+    posTopic.subscribe(msg => { state.drones[key] = { n: msg.x + 3.0 * i, e: msg.y, d: msg.z }; });
 
     const tgtTopic = new ROSLIB.Topic({ ros, name: `/${key}/target_position`,
       messageType: 'geometry_msgs/PoseStamped' });
@@ -875,9 +890,9 @@ function updateUI() {
 // ── Init ──────────────────────────────────────────────────────────────────────
 window.addEventListener('resize', resizeMap);
 resizeMap();
-connect();
+setTimeout(connect, 300);
 requestAnimationFrame(updateUI);
-logEvent('Dashboard loaded', 'ev-conn');
+logEvent('Dashboard loaded — connecting…', 'ev-conn');
 </script>
 </body>
 </html>
