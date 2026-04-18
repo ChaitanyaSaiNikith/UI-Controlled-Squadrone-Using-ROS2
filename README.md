@@ -40,8 +40,8 @@ The browser interface provides:
 
 | Formation | Description |
 |---|---|
-| **V** | Classic V-shape trailing behind leader |
 | **Line** | Single file behind leader |
+| **V** | Classic V-shape trailing behind leader |
 | **Diamond** | Diamond pattern around leader |
 | **Square** | Square grid behind leader |
 | **Circle** | Ring of drones orbiting behind leader (dynamic, radius 7 m) |
